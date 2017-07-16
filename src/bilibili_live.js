@@ -77,6 +77,10 @@
         Live.getMedalList = function () {
             return $.getJSON(Live.protocol + '//live.bilibili.com/i/ajaxGetMyMedalList').promise();
         };
+        Live.eval = function(fn) {
+            let Fn = Function;
+            return new Fn('return ' + fn)();
+        };
         Live.each = function (obj, fn) {
             if (!fn) {
                 return;
@@ -481,7 +485,7 @@
                             let spans = $('.body-container').find('.room-left-sidebar .sign-and-mission .sign-up-btn .dp-inline-block span');
                             $(spans[0]).hide(), $(spans[1]).show();
                         } else if (e.code === -500) {
-                            msg = new Notification(eval('\'' + e.msg + '\''), {
+                            msg = new Notification(e.msg, {
                                 body: '不能重复签到',
                                 icon: Live.protocol + '//static.hdslb.com/live-static/live-room/images/gift-section/gift-1.gif',
                             });
@@ -492,7 +496,7 @@
                                 msg.close();
                             }, 10000);
                         } else {
-                            msg = new Notification(eval('\'' + e.msg + '\''), {
+                            msg = new Notification(e.msg, {
                                 body: '',
                                 icon: Live.protocol + '//static.hdslb.com/live-static/live-room/images/gift-section/gift-1.gif',
                             });
@@ -1432,11 +1436,11 @@
                 // Live.treasure.awardBtn.awarding();
 
                 let img = Live.treasure.treasureTipAcquire.find('.captcha-img');
-                img.load(function () {
+                img.on("load",function () {
                     Live.treasure.context.clearRect(0, 0, Live.treasure.canvas.width, Live.treasure.canvas.height);
                     Live.treasure.context.drawImage(img[0], 0, 0);
                     Live.treasure.captcha.question = Live.treasure.correctQuestion(OCRAD(Live.treasure.context.getImageData(0, 0, 120, 40)));
-                    Live.treasure.captcha.answer = eval(Live.treasure.captcha.question);
+                    Live.treasure.captcha.answer = Live.eval(Live.treasure.captcha.question);
                     Live.treasure.treasureTipAcquire.find('input').val(Live.treasure.captcha.answer);
 
                     let data = Live.treasure.taskInfo;
@@ -1445,7 +1449,7 @@
                     !Live.treasure.stop && getAward(data.startTime, data.endTime, captcha);
                 });
                 Live.treasure.captcha.refresh();
-                img.error(function () {
+                img.on("error",function () {
                     Live.treasure.captcha.refresh();
                 });
 
@@ -1555,7 +1559,7 @@
                 },
                 gift: {
                     title: '礼物信息',
-                    css: '#chat-msg-list .gift-msg{display:none;}',
+                    css: '#chat-msg-list .gift-msg,.gift-msg-1000{display:none !important;}',
                     value: 'off',
                 },
                 vipEnterMsg: {
@@ -1598,14 +1602,14 @@
             init: function () {
                 Live.chat.chat_ctrl_panel = $('#chat-ctrl-panel');
                 Live.chat.counter = Live.chat.chat_ctrl_panel.find('.danmu-length-count');
-                chrome.runtime.sendMessage({
-                    command: "getOption",
-                    key: 'beat',
-                }, function (res) {
-                    if (res['value'] === 'on' && Live.BBQ && Live.BBQ.level >= 10 && Live.user && (typeof Live.user.user_level_rank === 'number') && Live.user.user_level_rank <= 25000) {
-                        Live.chat.beat = true;
-                    }
-                });
+                // chrome.runtime.sendMessage({
+                //     command: "getOption",
+                //     key: 'beat',
+                // }, function (res) {
+                //     if (res['value'] === 'on' && Live.BBQ && Live.BBQ.level >= 10 && Live.user && (typeof Live.user.user_level_rank === 'number') && Live.user.user_level_rank <= 25000) {
+                //         Live.chat.beat = true;
+                //     }
+                // });
                 chrome.runtime.sendMessage({
                     command: 'getOption',
                     key: 'danmu',
@@ -3226,14 +3230,12 @@
                                             // Live.beat.init();
                                         }
                                         Live.treasure.init();
-                                        Live.watcher.init(()=>{
-                                            Live.addScriptByFile('live-content-script.min.js', Live.scriptOptions);
-                                        });
+                                        Live.watcher.init();
                                         Live.helperInfoRow.css('opacity', 1);
                                     }, 2500);
-                                    // setTimeout(() => {
-                                        
-                                    // }, 5000)
+                                    setTimeout(() => {
+                                        Live.addScriptByFile('live-content-script.min.js', Live.scriptOptions);
+                                    }, 5000)
                                     Notification.requestPermission();
                                 });
                             });

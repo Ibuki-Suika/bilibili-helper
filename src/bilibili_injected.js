@@ -1,11 +1,36 @@
-/* global filenameSanitize: false, SelectModule: false,
+/* global filenameSanitize: false, store,
    generateASS: false, setPosition: false, parseXML: false */
 (function() {
     if ($('html').hasClass('bilibili-helper')) {
         return false;
     }
+    if (!store.enabled) {
+        return false;
+    }
+    store.set('defaulth5', 1);
+    store.delete = function(key, value) {
+        if (key === undefined) {
+            return;
+        }
+        let o = store.get(key);
+        if (o === undefined) {
+            return;
+        }
+        if (value !== undefined && value !== null) {
+            if (typeof value === 'string' || typeof value === 'number') {
+                o[value] && delete o[value];
+                store.set(key, o);
+            }
+        } else {
+            store.remove(key);
+        }
+    };
     let biliHelper = {};
-    if (document.location.pathname === '/blackboard/html5player.html') {
+    biliHelper.eval = function(fn) {
+        let Fn = Function;
+        return new Fn('return ' + fn)();
+    };
+    if (document.location.pathname === '/blackboard/html5player.html' || document.location.pathname === '/blackboard/html5playerbeta.html') {
         biliHelper.site = 2;
     } else if (location.hostname === 'bangumi.bilibili.com') {
         biliHelper.site = 1;
@@ -59,35 +84,48 @@
         inject_css('bilibiliHelperVideo', 'bilibiliHelperVideo.min.css');
         $('.arc-toolbar .helper .t .icon').css('background-image', 'url(' + chrome.extension.getURL('imgs/helper-neko.png') + ')');
     }
-    function setWide() {
-        let player = $('#bofqi');
-        let doit = ()=>{
-            if (!player.hasClass('wide')) {
+    function setWide(mode) {
+        console.warn('side:' + biliHelper.site, 'mode:' + mode);
+        let player = $('#bilibiliPlayer');
+        let doit = () => {
+            if (mode === 'wide' && !player.hasClass('mode-widescreen')) {
                 let html5WidthButton = $('.bilibili-player-iconfont-widescreen');
-                player.addClass('wide');
                 if (html5WidthButton.length === 0) {
-                    let flashvars = player.find('param[name=flashvars]');
+                    let flashvars = $('#player_placeholder').find('param[name=flashvars]');
                     flashvars.val(flashvars.val() + '&as_wide=1');
                     $('#player_placeholder').attr('data', $('#player_placeholder').attr('data'));
-                } else if (document.location.pathname === '/blackboard/html5player.html' || html5WidthButton.length > 0) {
+                } else {
                     html5WidthButton.click();
+                }
+            } else if (mode === 'webfullscreen' && !player.hasClass('mode-webfullscreen')) {
+                let html5WebfullscreenButton = $('.bilibili-player-iconfont-web-fullscreen');
+                console.warn(html5WebfullscreenButton.length);
+                if (html5WebfullscreenButton.length === 0) {
+                    // todo
+                } else if (html5WebfullscreenButton.length > 0) {
+                    html5WebfullscreenButton.click();
                 }
             }
         };
-        setTimeout(()=>{
+        if ($('#player_placeholder > *').length > 0) {
             doit();
-        }, 2000);
-        let observer = new MutationObserver(function() {
-            setTimeout(()=>{
+        } else {
+            let observer = new MutationObserver(function() {
                 doit();
-            }, 2000);
-        });
-        if (player.length > 0) {
-            observer.observe(player[0], {childList: true});
+                observer.disconnect();
+            });
+            if ($('#bofqi').length > 0) {
+                observer.observe($('#bofqi')[0], {childList: true});
+            } else if ($('#bilibiliPlayer').length > 0) {
+                observer.observe($('#bilibiliPlayer')[0], {childList: true});
+            }
         }
     }
     function setOffset() {
-        $(document).scrollTop($('.b-page-body').offset().top);
+        if ('scrollRestoration' in history) {
+            history.scrollRestoration = 'manual';
+            $(document).scrollTop($('.player-wrapper').offset().top);
+        }
     }
 
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
@@ -107,6 +145,10 @@
             return false;
         }
     });
+
+    let removeExtensionParam = function(url) {
+        return url.replace(/platform=bilihelper&?/, '');
+    };
 
     let finishUp = function() {
         chrome.runtime.sendMessage({
@@ -135,7 +177,7 @@
                 for (let i = 0; i < biliHelper.downloadUrls.length; i++) {
                     let segmentInfo = biliHelper.downloadUrls[i];
                     if (typeof segmentInfo === 'object') {
-                        let downloadOptions = getDownloadOptions(segmentInfo.url,
+                        let downloadOptions = getDownloadOptions(removeExtensionParam(segmentInfo.url),
                           getNiceSectionFilename(biliHelper.avid,
                             biliHelper.page, biliHelper.totalPage,
                             i, biliHelper.downloadUrls.length)),
@@ -144,7 +186,7 @@
                               // Set download attribute to better file name. When use "Save As" dialog, this value gets respected even the target is not from the same origin.
                               .data('download', downloadOptions.filename)
                               .attr('title', isNaN(parseInt(segmentInfo.filesize / 1048576 + 0.5)) ? ('长度: ' + parseTime(segmentInfo.length)) : ('长度: ' + parseTime(segmentInfo.length) + ' 大小: ' + parseInt(segmentInfo.filesize / 1048576 + 0.5) + ' MB'))
-                              .attr('href', segmentInfo.url);
+                              .attr('href', removeExtensionParam(segmentInfo.url));
                         biliHelper.mainBlock.downloaderSection.find('p').append($bhDownLink);
                         // register a callback that can talk to extension background
                         $bhDownLink.click(function(e) {
@@ -284,8 +326,8 @@
             biliHelper.mainBlock.append(biliHelper.mainBlock.querySection);
 
             biliHelper.switcher.set('original');
-            if (response.autowide === 'on') {
-                setWide();
+            if (response.autowide !== 'off') {
+                setWide(response.autowide);
             }
             if (biliHelper.site === 0) {
                 $('.player-wrapper .arc-toolbar').append(biliHelper.helperBlock);
@@ -359,8 +401,8 @@
         chrome.runtime.sendMessage({
             command: 'init',
         }, function(response) {
-            if (response.autowide === 'on') {
-                setWide();
+            if (response.autowide !== 'off') {
+                setWide(response.autowide);
             }
         });
     }
@@ -381,8 +423,8 @@
                 biliHelper.work();
                 return false;
             }
-            if (biliHelper.autowide === 'on') {
-                setWide();
+            if (biliHelper.autowide !== 'off') {
+                setWide(biliHelper.autowide);
             }
             if (biliHelper.autooffset === 'on') {
                 setOffset();
@@ -479,30 +521,77 @@
                         if (keyword.trim() !== '') {
                             control.find('.b-slt .txt').text(control.find('.b-slt .txt').text());
                         }
+                        let list = control.find('ul.list');
                         for (let i = 0; i < biliHelper.comments.length; i++) {
                             let node = biliHelper.comments[i],
                                 text = node.childNodes[0];
                             if (text && node && regex.test(text.nodeValue)) {
                                 text = text.nodeValue;
+                                let li = $('<li></li>');
                                 let commentData = node.getAttribute('p').split(','),
-                                    sender = commentData[6],
+                                    sender,
+                                    time,
+                                    originalContent;
+                                if (biliHelper.comments[i].senderUsername === undefined) {
+                                    sender = commentData[6];
+                                    biliHelper.comments[i].senderUsername = sender;
+                                } else {
+                                    sender = biliHelper.comments[i].senderUsername;
+                                }
+                                if (biliHelper.comments[i].time === undefined) {
                                     time = parseTime(parseInt(commentData[0]) * 1000);
-                                control.find('ul.list').append($('<li></li>').data('sender', sender).html('[' + time + '] ' + (keyword.trim() === '' ? parseSafe(text) : parseSafe(text).replace(regex, function(kw) {
-                                    return '<span class="kw">' + kw + '</span>';
-                                }))));
+                                    biliHelper.comments[i].time = time;
+                                } else {
+                                    time = biliHelper.comments[i].time;
+                                }
+                                if (biliHelper.comments[i].originalContent === undefined) {
+                                    originalContent = parseSafe(text);
+                                    biliHelper.comments[i].originalContent = originalContent;
+                                } else {
+                                    originalContent = biliHelper.comments[i].originalContent;
+                                }
+                                let content = '[' + time + '] ';
+                                // if (biliHelper.comments[i].senderId !== undefined) {
+                                //     content += '<a href="' + biliHelper.protocol + '//space.bilibili.com/' + biliHelper.comments[i].senderId + '" target="_blank">' + biliHelper.comments[i].senderUsername + '</a>';
+                                //     li.addClass('result');
+                                // }
+                                li.attr({'sender': sender, 'index': i});
+                                if (keyword.trim() === '') {
+                                    content += originalContent;
+                                } else {
+                                    content += originalContent.replace(regex, function(kw) {
+                                        return '<span class="kw">' + kw + '</span>';
+                                    });
+                                }
+                                li.append(content).attr('title', originalContent);
+                                if (node.error === true) {
+                                    li.addClass('error');
+                                }
+                                list.append(li);
                             }
                         }
-                    });
-                    control.find('.b-input').keyup();
-                    SelectModule.bind(control.find('div.b-slt'), {
-                        onChange: function(item) {
-                            let sender = $(item[0]).data('sender');
+                        let t = document.createElement('script');
+                        t.appendChild(document.createTextNode('UserCard.bind($("#bilibili_helper .query .list .result"));'));
+                        document.body.appendChild(t);
+                        t.parentNode.removeChild(t);
+                        control.find('.b-slt .list li').on('click', (e)=>{
+                            $('.b-slt .list').hide();
+                            if (biliHelper.selectedDanmu) {
+                                biliHelper.selectedDanmu.removeClass('selected');
+                            }
+                            let item = $(e.target);
+                            biliHelper.selectedDanmu = item;
+                            biliHelper.selectedDanmu.addClass('selected');
+                            let sender = item.attr('sender'),
+                                index = item.attr('index');
                             control.find('.result').text('查询中…');
                             if (sender.indexOf('D') === 0) {
                                 control.find('.result').text('游客弹幕');
                                 return;
                             }
                             let displayUserInfo = function(uid, data) {
+                                biliHelper.comments[index].senderId = uid;
+                                biliHelper.comments[index].senderUsername = parseSafe(data.name);
                                 control.find('.result').html('发送者: <a href="' + biliHelper.protocol + '//space.bilibili.com/' + uid + '" target="_blank" data-usercard-mid="' + uid + '">' + parseSafe(data.name) + '</a><div target="_blank" class="user-info-level l' + parseSafe(data.level_info.current_level) + '"></div>');
                                 let s = document.createElement('script');
                                 s.appendChild(document.createTextNode('UserCard.bind($("#bilibili_helper .query .result"));'));
@@ -515,20 +604,20 @@
                                 let cachedData = sessionStorage.getItem('user/' + uid);
                                 if (cachedData) {
                                     displayUserInfo(uid, JSON.parse(cachedData));
-                                    return false;
+                                } else {
+                                    $.getJSON(biliHelper.protocol + '//api.bilibili.com/cardrich?mid=' + uid + '&type=json', function(data) {
+                                        if (data.code === 0) {
+                                            let cardData = data.data.card;
+                                            sessionStorage.setItem('user/' + uid, JSON.stringify({
+                                                name: cardData.name,
+                                                level_info: {
+                                                    current_level: cardData.level_info.current_level,
+                                                },
+                                            }));
+                                            displayUserInfo(uid, cardData);
+                                        }
+                                    });
                                 }
-                                $.getJSON(biliHelper.protocol + '//api.bilibili.com/cardrich?mid=' + uid + '&type=json', function(data) {
-                                    if (data.code === 0) {
-                                        let cardData = data.data.card;
-                                        sessionStorage.setItem('user/' + uid, JSON.stringify({
-                                            name: cardData.name,
-                                            level_info: {
-                                                current_level: cardData.level_info.current_level,
-                                            },
-                                        }));
-                                        displayUserInfo(uid, cardData);
-                                    }
-                                });
                             };
 
                             let extracted = /^b(\d+)$/.exec(sender);
@@ -538,6 +627,8 @@
                                 $.get('https://biliquery.typcn.com/api/user/hash/' + sender, function(data) {
                                     if (!data || data.error !== 0 || typeof data.data !== 'object' || !data.data[0].id) {
                                         control.find('.result').text('查询失败, 发送用户可能已被管理员删除.');
+                                        item.addClass('error');
+                                        biliHelper.comments[index].error = true;
                                     } else {
                                         renderSender(data.data[0].id);
                                     }
@@ -545,7 +636,13 @@
                                     control.find('.result').text('查询失败, 无法连接到服务器 :(');
                                 });
                             }
-                        },
+                        });
+                    });
+                    control.find('.b-input').keyup();
+                    control.find('.b-slt').on('mouseover', ()=>{
+                        $('.b-slt .list').show();
+                    }).on('mouseleave', ()=>{
+                        $('.b-slt .list').hide();
                     });
                     biliHelper.mainBlock.querySection.find('p').empty().append(control);
                 });
@@ -553,11 +650,11 @@
             let c = null;
 
             window.postMessage ? (c = function(a) {
-                'https://secure.bilibili.com' !== a.origin && 'https://ssl.bilibili.com' !== a.origin || 'secJS:' !== a.data.substr(0, 6) || eval(a.data.substr(6));
+                'https://secure.bilibili.com' !== a.origin && 'https://ssl.bilibili.com' !== a.origin || 'secJS:' !== a.data.substr(0, 6) || biliHelper.eval(a.data.substr(6));
             }, window.addEventListener ? window.addEventListener('message', c, !1) : window.attachEvent && window.attachEvent('onmessage', c)) : setInterval(function() {
                 let evalCode = window.__GetCookie('__secureJS');
                 window.__SetCookie('__secureJS', '');
-                eval(evalCode);
+                biliHelper.eval(evalCode);
             }, 1000);
 
             if (!biliHelper.cid) {
